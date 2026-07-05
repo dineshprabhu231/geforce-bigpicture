@@ -16,11 +16,12 @@ shortcut files and asks Windows to open them, exactly like a double-click would.
 - Favoriting a game (**X** / **□** / **Space**) pins it to the front of the
   row, in the order you favorited things — unfavorite and it drops back into
   its normal spot
-- **Automatic artwork** via [SteamGridDB](https://www.steamgriddb.com) — add
-  your free API key in the ⚙ settings panel, then use the 🔍 button on a
-  tile (or "Fetch artwork" in the header) to pull box art automatically,
-  matched by shortcut name. Manually-set artwork (🖼) is never overwritten by
-  auto-fetch
+- **Automatic artwork** via [SteamGridDB](https://www.steamgriddb.com), fetched
+  through this app's own small backend (see `/backend`) so you never need
+  your own API key day-to-day — whoever hosts that backend adds the key
+  once. Use the 🔍 button on a tile (or "Fetch artwork" in the header) to
+  pull box art automatically, matched by shortcut name. Manually-set artwork
+  (🖼) is never overwritten by auto-fetch
 - Hover any tile (or press the artwork shortcut on it) to reveal a ✕ button
   that removes it from the list — this never touches the shortcut file
   itself, and the removal sticks even after a rescan or re-import
@@ -45,15 +46,39 @@ anything.
   which is most useful for `.lnk`/`.url`/`.gfnpc` files on Windows)
 - [Node.js](https://nodejs.org) 18+ installed
 
-## Running it
+## Running it locally
 
+This app is two pieces: this `frontend` folder (the Electron app) and the
+`backend` folder next to it (a small artwork-lookup server). For local dev
+you run both, in two terminals:
+
+**Terminal 1 — backend:**
 ```bash
+cd backend
+npm install
+# Add your SteamGridDB key (see backend/README.md) — get a free one at
+# https://www.steamgriddb.com/profile/preferences/api
+cp .env.example .env
+# then edit .env and paste your key into STEAMGRIDDB_API_KEY=
+
+npm start
+```
+You should see `Artwork server listening on :3000`. If you skip the `.env`
+step you'll also see a `Missing STEAMGRIDDB_API_KEY` warning — that's not
+fatal, the server still runs, but artwork lookups will fail (404/"no
+artwork found") until a real key is set.
+
+**Terminal 2 — frontend:**
+```bash
+cd frontend
 npm install
 npm run dev
 ```
-
-This starts the Vite dev server and opens the Electron window pointed at it,
-with DevTools open for debugging.
+This starts the Vite dev server and opens the Electron window pointed at
+it, with DevTools open for debugging. In dev mode the app talks to the
+backend on `http://localhost:3000` automatically — no configuration needed
+unless you want to point it at a deployed backend instead (see
+`.env.example` in this folder).
 
 ## Building a distributable
 
@@ -62,8 +87,11 @@ npm run build
 ```
 
 Produces an installer in `release/` via `electron-builder` (NSIS installer
-for Windows). Swap in your own `public/icon.ico` before shipping — the config
-in `package.json` already points at it.
+for Windows). Swap in your own `public/icon.ico` before shipping. Before
+building for real users, also deploy `/backend` somewhere (Railway/Vercel —
+see `backend/README.md`) and set `ARTWORK_SERVER_URL` in a `.env` file here
+to that deployed URL, since `localhost:3000` won't exist on anyone else's
+machine.
 
 ## How discovery works
 

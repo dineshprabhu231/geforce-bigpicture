@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Local env (never commit real secrets)
+.env
+
+# Vercel local metadata
+.vercel
+
+# Editor/OS cruft
+.DS_Store
+*.log

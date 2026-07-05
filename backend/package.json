@@ -1,0 +1,19 @@
+{
+  "name": "gfn-launcher-artwork-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Small proxy server that holds the SteamGridDB API key so GFN Launcher users never have to enter their own.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0"
+  }
+}

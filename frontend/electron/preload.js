@@ -12,8 +12,6 @@ contextBridge.exposeInMainWorld('gfnLauncher', {
   launch: (id) => ipcRenderer.invoke('library:launch', id),
   fetchArtwork: (id) => ipcRenderer.invoke('library:fetchArtwork', id),
   fetchAllArtwork: () => ipcRenderer.invoke('library:fetchAllArtwork'),
-  getApiKey: () => ipcRenderer.invoke('settings:getApiKey'),
-  setApiKey: (key) => ipcRenderer.invoke('settings:setApiKey', key),
   getAutoLaunch: () => ipcRenderer.invoke('settings:getAutoLaunch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:setAutoLaunch', enabled),
   setFullscreen: (enabled) => ipcRenderer.invoke('window:setFullscreen', enabled),

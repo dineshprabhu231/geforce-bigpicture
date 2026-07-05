@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+
+# App build output
+dist/
+release/
+
+# Editor/OS cruft
+.DS_Store
+*.log

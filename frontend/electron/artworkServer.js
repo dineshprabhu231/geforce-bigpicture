@@ -1,12 +1,16 @@
-// Talks to our own small hosted proxy (see /server at the repo root)
+// Talks to our own small hosted proxy (see the sibling /backend folder)
 // instead of SteamGridDB directly. That server holds the SteamGridDB API
 // key as a secret env var, so people using this app never need to get or
 // paste in their own key.
 //
-// Deploy /server to Railway (see server/README.md), then set
-// ARTWORK_SERVER_URL below to the URL Railway gives you.
+// Deploy /backend to Railway or Vercel (see backend/README.md) for a real
+// build, then set ARTWORK_SERVER_URL to whatever URL that gives you. In dev
+// mode (npm run dev), if you haven't set it, we default to the backend
+// running locally on :3000 — so `cd backend && npm start` in one terminal
+// and `cd frontend && npm run dev` in another just works out of the box.
+const isDev = process.env.NODE_ENV === 'development';
 const ARTWORK_SERVER_URL =
-  process.env.ARTWORK_SERVER_URL || 'https://gfn-artwork-server-production.up.railway.app';
+  process.env.ARTWORK_SERVER_URL || (isDev ? 'http://localhost:3000' : 'https://REPLACE-WITH-YOUR-DEPLOYED-URL');
 
 // Only needed if you set CLIENT_SECRET on the server too — leave both
 // blank to run against an open server.

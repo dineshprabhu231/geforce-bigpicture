@@ -1,8 +1,14 @@
+// Loads a local .env file if present — lets you override ARTWORK_SERVER_URL
+// (e.g. to point dev builds at a deployed backend instead of localhost:3000)
+// without exporting shell variables. Must run before artworkServer.js is
+// required below, since it reads process.env at module load time.
+require('dotenv').config();
+
 const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { scanSpecificFolder } = require('./shortcutScanner');
-const { fetchArtworkForName } = require('./steamGridDb');
+const { fetchArtworkForName } = require('./artworkServer');
 const { getStore } = require('./store');
 
 const IMAGE_MIME = {
@@ -259,13 +265,6 @@ ipcMain.handle('library:setTags', (_e, id, tags) => {
 
 // ---- IPC: settings -------------------------------------------------------
 
-ipcMain.handle('settings:getApiKey', () => store.get('steamGridDbApiKey', ''));
-
-ipcMain.handle('settings:setApiKey', (_e, key) => {
-  store.set('steamGridDbApiKey', (key || '').trim());
-  return store.get('steamGridDbApiKey', '');
-});
-
 ipcMain.handle('settings:getAutoLaunch', () => store.get('autoLaunch', false));
 
 ipcMain.handle('settings:setAutoLaunch', (_e, enabled) => {
@@ -287,15 +286,12 @@ ipcMain.handle('window:setFullscreen', (_e, enabled) => {
 // ---- IPC: automatic artwork (SteamGridDB) --------------------------------
 
 ipcMain.handle('library:fetchArtwork', async (_e, id) => {
-  const apiKey = store.get('steamGridDbApiKey', '');
   const games = store.get('games', []);
-  if (!apiKey) return { ok: false, error: 'Add a SteamGridDB API key in Settings first.', games };
-
   const game = games.find((g) => g.id === id);
   if (!game) return { ok: false, error: 'Game not found', games };
 
   try {
-    const image = await fetchArtworkForName(game.name, apiKey);
+    const image = await fetchArtworkForName(game.name);
     if (!image) return { ok: false, error: `No artwork found for "${game.name}".`, games };
     const updated = games.map((g) => (g.id === id ? { ...g, image } : g));
     store.set('games', updated);
@@ -310,15 +306,13 @@ ipcMain.handle('library:fetchArtwork', async (_e, id) => {
 // whatever it found even if a later game fails, so a rate limit or a typo'd
 // name partway through doesn't lose earlier progress.
 ipcMain.handle('library:fetchAllArtwork', async () => {
-  const apiKey = store.get('steamGridDbApiKey', '');
   let games = store.get('games', []);
-  if (!apiKey) return { ok: false, error: 'Add a SteamGridDB API key in Settings first.', games };
 
   const misses = [];
   for (const game of games) {
     if (game.image) continue;
     try {
-      const image = await fetchArtworkForName(game.name, apiKey);
+      const image = await fetchArtworkForName(game.name);
       if (image) {
         games = games.map((g) => (g.id === game.id ? { ...g, image } : g));
         store.set('games', games);

@@ -26,7 +26,6 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [launchError, setLaunchError] = useState(null);
-  const [apiKey, setApiKey] = useState('');
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [fetchingArtId, setFetchingArtId] = useState(null);
@@ -79,7 +78,6 @@ export default function App() {
     // No more auto-scan on launch — just load whatever's already in the
     // library. "Rescan" only re-checks a folder once one's been imported.
     loadLibrary();
-    bridge.getApiKey().then(setApiKey);
     bridge.getAutoLaunch().then(setAutoLaunch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -167,10 +165,6 @@ export default function App() {
     async (index) => {
       const game = visibleGames[index];
       if (!game) return;
-      if (!apiKey) {
-        setShowSettings(true);
-        return;
-      }
       setArtworkNotice(null);
       setFetchingArtId(game.id);
       try {
@@ -181,14 +175,10 @@ export default function App() {
         setFetchingArtId(null);
       }
     },
-    [visibleGames, bridge, apiKey, applyGames]
+    [visibleGames, bridge, applyGames]
   );
 
   const fetchAllArtwork = useCallback(async () => {
-    if (!apiKey) {
-      setShowSettings(true);
-      return;
-    }
     setArtworkNotice(null);
     setFetchingAll(true);
     try {
@@ -198,16 +188,7 @@ export default function App() {
     } finally {
       setFetchingAll(false);
     }
-  }, [bridge, apiKey, applyGames]);
-
-  const saveApiKey = useCallback(
-    async (key) => {
-      const saved = await bridge.setApiKey(key);
-      setApiKey(saved);
-      setShowSettings(false);
-    },
-    [bridge]
-  );
+  }, [bridge, applyGames]);
 
   const toggleAutoLaunch = useCallback(
     async (enabled) => {
@@ -419,9 +400,7 @@ export default function App() {
 
       {showSettings && (
         <SettingsPanel
-          apiKey={apiKey}
           autoLaunch={autoLaunch}
-          onSave={saveApiKey}
           onToggleAutoLaunch={toggleAutoLaunch}
           onClose={() => setShowSettings(false)}
         />
