@@ -1,7 +1,7 @@
 import React from 'react';
 import GameTile from './GameTile.jsx';
 
-export default function GameGrid({ games, focusedIndex, fetchingArtId, onSelect, onSetImage, onFetchArtwork, onEditTags, onRemove, onHover, rowRef }) {
+export default function GameGrid({ games, focusedIndex, fetchingArtId, onSelect, onSetImage, onFetchArtwork, onEditTags, onRemove, onHover, onFocusHover, rowRef }) {
   return (
     <div className="flex-1 flex items-center min-h-0">
       <div
@@ -13,7 +13,7 @@ export default function GameGrid({ games, focusedIndex, fetchingArtId, onSelect,
           <div
             key={game.id}
             style={{ scrollSnapAlign: 'center' }}
-            onMouseEnter={() => onHover && onHover(game.id)}
+            onMouseEnter={() => { onHover && onHover(game.id); onFocusHover && onFocusHover(i); }}
             onMouseLeave={() => onHover && onHover(null)}
           >
             <GameTile

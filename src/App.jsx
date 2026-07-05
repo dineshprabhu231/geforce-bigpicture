@@ -8,6 +8,7 @@ import ControlHints from './components/ControlHints.jsx';
 import EmptyState from './components/EmptyState.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import { useGamepadNavigation } from './hooks/useGamepadNavigation.js';
+import { playLaunchSound, playFavoriteSound } from './utils/sfx.js';
 
 const RECENT_COUNT = 8;
 
@@ -119,6 +120,7 @@ export default function App() {
       const game = visibleGames[index];
       if (!game) return;
       setLaunchError(null);
+      playLaunchSound();
       const result = await bridge.launch(game.id);
       if (result.games) applyGames(result.games, game.id);
       if (!result.ok) setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
@@ -131,6 +133,7 @@ export default function App() {
       const game = games.find((g) => g.id === id);
       if (!game) return;
       setLaunchError(null);
+      playLaunchSound();
       const result = await bridge.launch(id);
       if (result.games) applyGames(result.games, id);
       if (!result.ok) setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
@@ -143,6 +146,8 @@ export default function App() {
       const game = visibleGames[index];
       if (!game) return;
       const updated = await bridge.toggleFavorite(game.id);
+      const nowFavorite = updated.find((g) => g.id === game.id)?.favorite;
+      playFavoriteSound(!!nowFavorite);
       applyGames(updated, game.id);
     },
     [visibleGames, bridge, applyGames]
@@ -252,7 +257,7 @@ export default function App() {
     }
   }, [bridge, applyGames]);
 
-  const { focusedIndex, setFocusedIndex, inputMethod } = useGamepadNavigation(
+  const { focusedIndex, setFocusedIndex, focusHover, inputMethod } = useGamepadNavigation(
     visibleGames.length,
     launchGame,
     toggleFavorite,
@@ -403,6 +408,7 @@ export default function App() {
               onEditTags={setTagEditorIndex}
               onRemove={removeGame}
               onHover={setHoveredId}
+              onFocusHover={focusHover}
               rowRef={rowRef}
             />
           )}

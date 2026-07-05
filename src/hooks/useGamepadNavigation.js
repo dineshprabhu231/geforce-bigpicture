@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { playMoveSound } from '../utils/sfx.js';
 
 const STICK_DEADZONE = 0.5;
 const REPEAT_DELAY_MS = 260; // time before a held direction starts repeating
@@ -40,18 +41,43 @@ export function useGamepadNavigation(itemCount, onActivate, onSecondary, onTerti
   // (Escape) we shouldn't fight them every time the poll loop notices the
   // controller is still plugged in.
   const autoFullscreenedRef = useRef(false);
+  // Mirrors focusedIndex synchronously (state updates are async) so both
+  // the keyboard/gamepad mover and the mouse-hover mover can read "where
+  // focus currently is" without stale closures.
+  const focusedIndexRef = useRef(0);
+  useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
+  // Whatever gamepad the poll loop last saw connected, if any — lets mouse
+  // hover fire a haptic tick on a controller even though the hover itself
+  // didn't come from that controller.
+  const latestPadRef = useRef(null);
 
   useEffect(() => {
     setFocusedIndex((i) => Math.min(i, Math.max(itemCount - 1, 0)));
   }, [itemCount]);
 
   const move = (dir) => {
-    setFocusedIndex((current) => {
-      if (itemCount === 0) return 0;
-      const next = dir === 'left' ? current - 1 : current + 1;
-      return Math.max(0, Math.min(itemCount - 1, next));
-    });
+    if (itemCount === 0) return;
+    const current = focusedIndexRef.current;
+    const next = dir === 'left' ? current - 1 : current + 1;
+    const clamped = Math.max(0, Math.min(itemCount - 1, next));
+    if (clamped === current) return;
+    playMoveSound(dir);
+    rumble(latestPadRef.current, { duration: 30, weakMagnitude: 0.1, strongMagnitude: 0.05 });
+    setFocusedIndex(clamped);
   };
+
+  // Mouse hover over a tile moves focus the same way a d-pad nudge would —
+  // same tick sound and haptic buzz, direction inferred from which way the
+  // focus moved along the shelf.
+  const focusHover = useCallback((newIndex) => {
+    if (itemCount === 0) return;
+    const current = focusedIndexRef.current;
+    const clamped = Math.max(0, Math.min(itemCount - 1, newIndex));
+    if (clamped === current) return;
+    playMoveSound(clamped > current ? 'right' : 'left');
+    rumble(latestPadRef.current, { duration: 30, weakMagnitude: 0.1, strongMagnitude: 0.05 });
+    setFocusedIndex(clamped);
+  }, [itemCount]);
 
   // Keyboard input
   useEffect(() => {
@@ -89,6 +115,7 @@ export function useGamepadNavigation(itemCount, onActivate, onSecondary, onTerti
     const poll = () => {
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const pad = Array.from(pads).find(Boolean);
+      latestPadRef.current = pad || null;
 
       if (pad) {
         if (!autoFullscreenedRef.current) {
@@ -148,5 +175,5 @@ export function useGamepadNavigation(itemCount, onActivate, onSecondary, onTerti
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedIndex, itemCount]);
 
-  return { focusedIndex, setFocusedIndex, inputMethod };
+  return { focusedIndex, setFocusedIndex, focusHover, inputMethod };
 }
