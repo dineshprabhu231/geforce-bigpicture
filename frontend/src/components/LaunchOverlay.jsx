@@ -4,37 +4,29 @@ import LogoMark from './LogoMark.jsx';
 // GeForce NOW itself can take up to roughly a minute to actually start
 // streaming after we hand it the shortcut, so this overlay just reassures
 // the person something is happening rather than leaving them staring at
-// the grid wondering if the button press registered. It closes itself
-// after a while, or immediately if they dismiss it (Esc / B / click).
-const AUTO_DISMISS_MS = 60_000;
+// the grid wondering if the button press registered. It closes itself when
+// the Electron window loses focus, which is the moment GeForce NOW has
+// taken over the screen.
 
 export default function LaunchOverlay({ gameName, onDismiss }) {
   useEffect(() => {
-    const timer = setTimeout(onDismiss, AUTO_DISMISS_MS);
-
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') onDismiss();
+    const closeIfBlurred = () => {
+      if (!document.hidden) return;
+      onDismiss();
     };
-    window.addEventListener('keydown', onKeyDown);
-
-    // Also let a controller's B/Circle button dismiss it, since someone
-    // sitting back on a couch may not have a keyboard in reach.
-    let rafId;
-    const poll = () => {
-      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const pad = Array.from(pads).find(Boolean);
-      if (pad?.buttons[1]?.pressed) {
-        onDismiss();
-        return;
-      }
-      rafId = requestAnimationFrame(poll);
+    const onVisibilityChange = () => {
+      if (document.hidden) onDismiss();
     };
-    rafId = requestAnimationFrame(poll);
+    const onWindowBlur = () => {
+      closeIfBlurred();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onWindowBlur);
 
     return () => {
-      clearTimeout(timer);
-      window.removeEventListener('keydown', onKeyDown);
-      cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [onDismiss]);
 
@@ -57,12 +49,7 @@ export default function LaunchOverlay({ gameName, onDismiss }) {
         </p>
       </div>
 
-      <button
-        onClick={onDismiss}
-        className="font-mono text-xs text-muted border border-white/10 rounded-full px-4 py-2 hover:border-accent hover:text-ink transition-colors"
-      >
-        B / Esc to dismiss
-      </button>
+      <p className="font-mono text-xs text-muted">Waiting for GeForce NOW to take focus...</p>
     </div>
   );
 }

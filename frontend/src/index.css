@@ -11,6 +11,11 @@ body {
   overscroll-behavior: none;
 }
 
+body.hide-cursor,
+body.hide-cursor * {
+  cursor: none !important;
+}
+
 /* Console-style focus lift, used on the active tile */
 @keyframes tile-lift {
   from { transform: scale(1); }

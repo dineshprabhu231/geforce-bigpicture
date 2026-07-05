@@ -18,12 +18,13 @@ const REPEAT_RATE_MS = 130;
  * @param {number} initialIndex which item starts focused
  * @param {(index:number)=>void} onActivate A/Enter on the focused item
  * @param {()=>void} onCancel B/Escape — dismiss without acting
+ * @param {(pad:Gamepad)=>void} onControllerInput called when the modal sees controller input
  */
-export function useModalNav({ itemCount, orientation = 'horizontal', initialIndex = 0, onActivate, onCancel }) {
+export function useModalNav({ itemCount, orientation = 'horizontal', initialIndex = 0, onActivate, onCancel, onControllerInput }) {
   const [index, setIndex] = useState(Math.min(initialIndex, Math.max(itemCount - 1, 0)));
   const indexRef = useRef(index);
   useEffect(() => { indexRef.current = index; }, [index]);
-  const stateRef = useRef({ lastDir: null, lastMoveTime: 0, prevButtons: {} });
+  const stateRef = useRef({ lastDir: null, lastMoveTime: 0, prevButtons: null });
   const padRef = useRef(null);
 
   const move = (dir) => {
@@ -70,6 +71,10 @@ export function useModalNav({ itemCount, orientation = 'horizontal', initialInde
         const axis = orientation === 'horizontal' ? (pad.axes[0] || 0) : (pad.axes[1] || 0);
         const prevPressed = orientation === 'horizontal' ? pad.buttons[14]?.pressed : pad.buttons[12]?.pressed;
         const nextPressed = orientation === 'horizontal' ? pad.buttons[15]?.pressed : pad.buttons[13]?.pressed;
+        const aPressed = pad.buttons[0]?.pressed;
+        const bPressed = pad.buttons[1]?.pressed;
+
+        onControllerInput && onControllerInput(pad);
 
         let dir = null;
         if (prevPressed || axis < -STICK_DEADZONE) dir = 'prev';
@@ -87,8 +92,12 @@ export function useModalNav({ itemCount, orientation = 'horizontal', initialInde
           s.lastDir = null;
         }
 
-        const aPressed = pad.buttons[0]?.pressed;
-        const bPressed = pad.buttons[1]?.pressed;
+        if (!s.prevButtons) {
+          s.prevButtons = { 0: aPressed, 1: bPressed };
+          rafId = requestAnimationFrame(poll);
+          return;
+        }
+
         if (aPressed && !s.prevButtons[0]) {
           rumble(pad, { duration: 90, weakMagnitude: 0.2, strongMagnitude: 0.4 });
           onActivate && onActivate(indexRef.current);

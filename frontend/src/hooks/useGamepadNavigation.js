@@ -24,8 +24,11 @@ const REPEAT_RATE_MS = 130;
  * @param {(index:number)=>void} opts.onGridSecondary X / Space on a tile — favorite
  * @param {(index:number)=>void} opts.onGridTertiary Y / "i" on a tile — set artwork
  * @param {(index:number)=>void} opts.onGridRemove B / Delete on a tile — remove (with confirmation)
+ * @param {number} opts.recentCount number of recent games in the continue-playing row
+ * @param {(index:number)=>void} opts.onRecentActivate A / Enter on a recent game tile
  * @param {(index:number)=>void} opts.onHeaderActivate A / Enter on a header control
  * @param {(index:number)=>void} opts.onFilterActivate A / Enter on a filter chip
+ * @param {(pad:Gamepad)=>void} opts.onControllerInput called when controller input should hide the cursor
  * @param {(pad:Gamepad)=>void} opts.onGamepadConnect fires once per physical connect
  * @param {(pad:Gamepad|null)=>void} opts.onGamepadDisconnect fires when the last pad disconnects
  */
@@ -33,18 +36,22 @@ export function useGamepadNavigation({
   gridCount,
   headerCount = 0,
   filterCount = 0,
+  recentCount = 0,
   disabled = false,
   onGridActivate,
   onGridSecondary,
   onGridTertiary,
   onGridRemove,
+  onRecentActivate,
   onHeaderActivate,
   onFilterActivate,
+  onControllerInput,
   onGamepadConnect,
   onGamepadDisconnect,
 }) {
   const [zone, setZone] = useState('grid'); // 'header' | 'filters' | 'grid'
   const [gridIndex, setGridIndex] = useState(0);
+  const [recentIndex, setRecentIndex] = useState(0);
   const [headerIndex, setHeaderIndex] = useState(0);
   const [filterIndex, setFilterIndex] = useState(0);
   const [inputMethod, setInputMethod] = useState('keyboard'); // 'keyboard' | 'xbox' | 'playstation'
@@ -57,20 +64,23 @@ export function useGamepadNavigation({
     const order = [];
     if (headerCount > 0) order.push('header');
     if (filterCount > 0) order.push('filters');
+    if (recentCount > 0) order.push('recent');
     order.push('grid');
     return order;
-  }, [headerCount, filterCount]);
+  }, [headerCount, filterCount, recentCount]);
 
   const zoneRef = useRef(zone);
   useEffect(() => { zoneRef.current = zone; }, [zone]);
   const gridIndexRef = useRef(0);
   useEffect(() => { gridIndexRef.current = gridIndex; }, [gridIndex]);
+  const recentIndexRef = useRef(0);
+  useEffect(() => { recentIndexRef.current = recentIndex; }, [recentIndex]);
   const headerIndexRef = useRef(0);
   useEffect(() => { headerIndexRef.current = headerIndex; }, [headerIndex]);
   const filterIndexRef = useRef(0);
   useEffect(() => { filterIndexRef.current = filterIndex; }, [filterIndex]);
 
-  const stateRef = useRef({ lastDir: null, lastMoveTime: 0, lastVertDir: null, prevButtons: {} });
+  const stateRef = useRef({ lastDir: null, lastMoveTime: 0, lastVertDir: null, prevButtons: null });
   // Only auto-fullscreen once per session — if the person manually exits
   // (Escape) we shouldn't fight them every time the poll loop notices the
   // controller is still plugged in.
@@ -80,10 +90,39 @@ export function useGamepadNavigation({
   // itself didn't come from that controller.
   const latestPadRef = useRef(null);
 
+  // While a modal owns input, clear the edge detector so the same held A/B
+  // press used in the popup cannot fire the main grid action when control
+  // returns. When the modal closes, snapshot the current pad state again.
+  useEffect(() => {
+    if (disabled) {
+      stateRef.current.lastDir = null;
+      stateRef.current.lastVertDir = null;
+      stateRef.current.prevButtons = null;
+      return;
+    }
+
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = Array.from(pads).find(Boolean);
+    if (!pad) {
+      stateRef.current.prevButtons = null;
+      return;
+    }
+
+    stateRef.current.prevButtons = {
+      0: pad.buttons[0]?.pressed,
+      1: pad.buttons[1]?.pressed,
+      2: pad.buttons[2]?.pressed,
+      3: pad.buttons[3]?.pressed,
+    };
+    stateRef.current.lastDir = null;
+    stateRef.current.lastVertDir = null;
+  }, [disabled]);
+
   // Clamp each zone's index if its item count shrinks (search narrows the
   // shelf, a tag gets removed, etc.), and fall back to the grid if the zone
   // we were in disappears entirely.
   useEffect(() => { setGridIndex((i) => Math.min(i, Math.max(gridCount - 1, 0))); }, [gridCount]);
+  useEffect(() => { setRecentIndex((i) => Math.min(i, Math.max(recentCount - 1, 0))); }, [recentCount]);
   useEffect(() => { setHeaderIndex((i) => Math.min(i, Math.max(headerCount - 1, 0))); }, [headerCount]);
   useEffect(() => { setFilterIndex((i) => Math.min(i, Math.max(filterCount - 1, 0))); }, [filterCount]);
   useEffect(() => {
@@ -92,10 +131,10 @@ export function useGamepadNavigation({
 
   const moveHorizontal = useCallback((dir) => {
     const currentZone = zoneRef.current;
-    const count = currentZone === 'header' ? headerCount : currentZone === 'filters' ? filterCount : gridCount;
+    const count = currentZone === 'header' ? headerCount : currentZone === 'filters' ? filterCount : currentZone === 'recent' ? recentCount : gridCount;
     if (count === 0) return;
-    const ref = currentZone === 'header' ? headerIndexRef : currentZone === 'filters' ? filterIndexRef : gridIndexRef;
-    const setter = currentZone === 'header' ? setHeaderIndex : currentZone === 'filters' ? setFilterIndex : setGridIndex;
+    const ref = currentZone === 'header' ? headerIndexRef : currentZone === 'filters' ? filterIndexRef : currentZone === 'recent' ? recentIndexRef : gridIndexRef;
+    const setter = currentZone === 'header' ? setHeaderIndex : currentZone === 'filters' ? setFilterIndex : currentZone === 'recent' ? setRecentIndex : setGridIndex;
     const current = ref.current;
     const next = dir === 'left' ? current - 1 : current + 1;
     const clamped = Math.max(0, Math.min(count - 1, next));
@@ -137,8 +176,14 @@ export function useGamepadNavigation({
     const z = zoneRef.current;
     if (z === 'header') onHeaderActivate && onHeaderActivate(headerIndexRef.current);
     else if (z === 'filters') onFilterActivate && onFilterActivate(filterIndexRef.current);
+    else if (z === 'recent') onRecentActivate && onRecentActivate(recentIndexRef.current);
     else onGridActivate && onGridActivate(gridIndexRef.current);
-  }, [onHeaderActivate, onFilterActivate, onGridActivate]);
+  }, [onHeaderActivate, onFilterActivate, onRecentActivate, onGridActivate]);
+
+  const markControllerInput = useCallback((pad) => {
+    onControllerInput && onControllerInput(pad);
+    setInputMethod(detectPadType(pad?.id));
+  }, [onControllerInput]);
 
   // Keyboard input
   useEffect(() => {
@@ -179,6 +224,7 @@ export function useGamepadNavigation({
   useEffect(() => {
     const onConnect = (e) => {
       setGamepadConnected(true);
+      onControllerInput && onControllerInput(e.gamepad || null);
       setInputMethod(detectPadType(e.gamepad?.id));
       rumbleConnectPulse(e.gamepad);
       onGamepadConnect && onGamepadConnect(e.gamepad);
@@ -194,15 +240,19 @@ export function useGamepadNavigation({
       window.removeEventListener('gamepadconnected', onConnect);
       window.removeEventListener('gamepaddisconnected', onDisconnect);
     };
-  }, [onGamepadConnect, onGamepadDisconnect]);
+  }, [onControllerInput, onGamepadConnect, onGamepadDisconnect]);
 
   // Gamepad polling loop — movement + button activation. Connect/disconnect
   // itself is handled above, not here.
   useEffect(() => {
-    if (disabled) return;
     let rafId;
 
     const poll = () => {
+      if (disabled) {
+        rafId = requestAnimationFrame(poll);
+        return;
+      }
+
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       const pad = Array.from(pads).find(Boolean);
       latestPadRef.current = pad || null;
@@ -232,7 +282,7 @@ export function useGamepadNavigation({
         const s = stateRef.current;
 
         if (hDir) {
-          setInputMethod(detectPadType(pad.id));
+          markControllerInput(pad);
           if (hDir !== s.lastDir) {
             moveHorizontal(hDir);
             s.lastDir = hDir;
@@ -251,7 +301,7 @@ export function useGamepadNavigation({
         // auto-repeat) — holding up/down shouldn't rocket through zones.
         if (vDir) {
           if (vDir !== s.lastVertDir) {
-            setInputMethod(detectPadType(pad.id));
+            markControllerInput(pad);
             moveVertical(vDir);
             s.lastVertDir = vDir;
           }
@@ -266,12 +316,12 @@ export function useGamepadNavigation({
         const yPressed = pad.buttons[3]?.pressed;
 
         if (aPressed && !s.prevButtons[0]) {
-          setInputMethod(detectPadType(pad.id));
+          markControllerInput(pad);
           rumble(pad, { duration: 140, weakMagnitude: 0.3, strongMagnitude: 0.7 });
           activate();
         }
         if (bPressed && !s.prevButtons[1]) {
-          setInputMethod(detectPadType(pad.id));
+          markControllerInput(pad);
           if (zoneRef.current === 'grid') {
             rumble(pad, { duration: 90, weakMagnitude: 0.2, strongMagnitude: 0.3 });
             onGridRemove && onGridRemove(gridIndexRef.current);
@@ -282,14 +332,14 @@ export function useGamepadNavigation({
           }
         }
         if (xPressed && !s.prevButtons[2]) {
-          setInputMethod(detectPadType(pad.id));
+          markControllerInput(pad);
           if (zoneRef.current === 'grid') {
             rumble(pad, { duration: 70, weakMagnitude: 0.15, strongMagnitude: 0.25 });
             onGridSecondary && onGridSecondary(gridIndexRef.current);
           }
         }
         if (yPressed && !s.prevButtons[3]) {
-          setInputMethod(detectPadType(pad.id));
+          markControllerInput(pad);
           if (zoneRef.current === 'grid') onGridTertiary && onGridTertiary(gridIndexRef.current);
         }
         s.prevButtons = { 0: aPressed, 1: bPressed, 2: xPressed, 3: yPressed };
@@ -307,10 +357,13 @@ export function useGamepadNavigation({
     setZone,
     gridIndex,
     setGridIndex,
+    recentIndex,
+    setRecentIndex,
     headerIndex,
     filterIndex,
     focusHover,
     inputMethod,
+    setInputMethod,
     gamepadConnected,
   };
 }

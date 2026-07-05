@@ -47,6 +47,7 @@ export default function App() {
   const [confirmRemove, setConfirmRemove] = useState(null); // { id, name } while the remove dialog is open
   const [hoveredId, setHoveredId] = useState(null);
   const [gamepadToast, setGamepadToast] = useState(null); // { kind: 'connected'|'disconnected', label }
+  const [cursorVisible, setCursorVisible] = useState(true);
   const rowRef = useRef(null);
   const searchInputRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -139,8 +140,8 @@ export default function App() {
       const result = await bridge.launch(game.id);
       if (result.games) applyGames(result.games, game.id);
       if (!result.ok) {
-        setLaunchingGame(null);
         setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+        setLaunchingGame(null);
       }
     },
     [visibleGames, bridge, applyGames]
@@ -156,8 +157,8 @@ export default function App() {
       const result = await bridge.launch(id);
       if (result.games) applyGames(result.games, id);
       if (!result.ok) {
-        setLaunchingGame(null);
         setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+        setLaunchingGame(null);
       }
     },
     [games, bridge, applyGames]
@@ -304,10 +305,19 @@ export default function App() {
     [allTags]
   );
 
+  const quitApp = useCallback(() => {
+    window.gfnLauncher?.closeApp?.();
+  }, []);
+
+  const handleControllerInput = useCallback(() => {
+    setCursorVisible(false);
+  }, []);
+
   const handleGamepadConnect = useCallback((pad) => {
     playControllerConnectSound();
     const label = detectPadType(pad?.id) === 'playstation' ? 'PlayStation controller connected' : 'Controller connected';
     setGamepadToast({ kind: 'connected', label });
+    setCursorVisible(false);
     clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setGamepadToast(null), TOAST_DURATION_MS);
   }, []);
@@ -315,6 +325,7 @@ export default function App() {
   const handleGamepadDisconnect = useCallback(() => {
     playControllerDisconnectSound();
     setGamepadToast({ kind: 'disconnected', label: 'Controller disconnected' });
+    setCursorVisible(true);
     clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setGamepadToast(null), TOAST_DURATION_MS);
   }, []);
@@ -325,24 +336,38 @@ export default function App() {
 
   const {
     zone,
+    setZone,
     gridIndex,
     setGridIndex,
+    recentIndex,
+    setRecentIndex,
     headerIndex,
     filterIndex,
     focusHover,
     inputMethod,
+    setInputMethod,
     gamepadConnected,
   } = useGamepadNavigation({
     gridCount: visibleGames.length,
     headerCount,
     filterCount: allTags.length > 0 ? allTags.length + 1 : 0,
+    recentCount: recentGames.length,
     disabled: anyModalOpen,
     onGridActivate: launchGame,
     onGridSecondary: toggleFavorite,
     onGridTertiary: setImage,
     onGridRemove: requestRemove,
+    onRecentActivate: (id) => {
+      const index = visibleGames.findIndex((game) => game.id === id);
+      if (index !== -1) {
+        setGridIndex(index);
+        setHoveredId(id);
+        setZone('grid');
+      }
+    },
     onHeaderActivate,
     onFilterActivate,
+    onControllerInput: handleControllerInput,
     onGamepadConnect: handleGamepadConnect,
     onGamepadDisconnect: handleGamepadDisconnect,
   });
@@ -360,6 +385,24 @@ export default function App() {
     const tile = row.children[gridIndex];
     if (tile) tile.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
   }, [gridIndex]);
+
+  useEffect(() => {
+    const onMouseActivity = () => {
+      setInputMethod('keyboard');
+      setCursorVisible(true);
+    };
+    window.addEventListener('mousemove', onMouseActivity);
+    window.addEventListener('mousedown', onMouseActivity);
+    return () => {
+      window.removeEventListener('mousemove', onMouseActivity);
+      window.removeEventListener('mousedown', onMouseActivity);
+    };
+  }, [setInputMethod]);
+
+  useEffect(() => {
+    document.body.classList.toggle('hide-cursor', !cursorVisible);
+    return () => document.body.classList.remove('hide-cursor');
+  }, [cursorVisible]);
 
   const focusedGame = visibleGames[gridIndex];
   const bannerGame = (hoveredId && games.find((g) => g.id === hoveredId)) || focusedGame;
@@ -496,7 +539,25 @@ export default function App() {
         <EmptyState onAddFolder={addFolder} onAddManual={addManual} scanning={scanning} />
       ) : (
         <>
-          <RecentRow games={recentGames} onLaunch={launchGameById} onHover={setHoveredId} />
+          <RecentRow
+            games={recentGames}
+            focusedIndex={recentIndex}
+            zoneActive={zone === 'recent'}
+            onSelect={(id) => {
+              const index = visibleGames.findIndex((game) => game.id === id);
+              if (index !== -1) {
+                setGridIndex(index);
+                setHoveredId(id);
+                setZone('grid');
+              }
+            }}
+            onHover={setHoveredId}
+            onFocusHover={(gameId) => {
+              setHoveredId(gameId);
+              const idx = recentGames.findIndex((game) => game.id === gameId);
+              if (idx !== -1) setRecentIndex(idx);
+            }}
+          />
           {visibleGames.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-muted font-body">
               No games match "{searchQuery || activeTag}".
@@ -534,6 +595,8 @@ export default function App() {
           autoLaunch={autoLaunch}
           onToggleAutoLaunch={toggleAutoLaunch}
           onClose={() => setShowSettings(false)}
+          onQuit={quitApp}
+          onControllerInput={handleControllerInput}
         />
       )}
 
@@ -550,6 +613,7 @@ export default function App() {
           allTags={allTags}
           onSave={saveTags}
           onClose={() => setTagEditorIndex(null)}
+          onControllerInput={handleControllerInput}
         />
       )}
 
@@ -562,6 +626,7 @@ export default function App() {
           destructive
           onConfirm={confirmRemoveGame}
           onCancel={cancelRemove}
+          onControllerInput={handleControllerInput}
         />
       )}
       </div>

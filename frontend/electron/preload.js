@@ -15,4 +15,5 @@ contextBridge.exposeInMainWorld('gfnLauncher', {
   getAutoLaunch: () => ipcRenderer.invoke('settings:getAutoLaunch'),
   setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:setAutoLaunch', enabled),
   setFullscreen: (enabled) => ipcRenderer.invoke('window:setFullscreen', enabled),
+    closeApp: () => ipcRenderer.invoke('window:closeApp'),
 });

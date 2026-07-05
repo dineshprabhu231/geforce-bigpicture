@@ -14,6 +14,7 @@ export default function ConfirmModal({
   destructive = false,
   onConfirm,
   onCancel,
+  onControllerInput,
 }) {
   // Cancel starts focused — the safer default for anything destructive.
   const [index] = useModalNav({
@@ -22,6 +23,7 @@ export default function ConfirmModal({
     initialIndex: 0,
     onActivate: (i) => (i === 0 ? onCancel() : onConfirm()),
     onCancel,
+    onControllerInput,
   });
 
   return (

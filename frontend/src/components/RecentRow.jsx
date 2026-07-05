@@ -1,9 +1,8 @@
 import React from 'react';
 
 // Small strip of the most-recently-launched games, separate from favorites.
-// Click-to-launch only — it sits outside the controller-navigable main row
-// to keep gamepad focus logic simple (one row of focus, not two).
-export default function RecentRow({ games, onLaunch, onHover }) {
+// Selecting a tile jumps the main shelf to the matching game below.
+export default function RecentRow({ games, focusedIndex = 0, zoneActive = false, onSelect, onHover, onFocusHover }) {
   if (games.length === 0) return null;
 
   return (
@@ -12,14 +11,21 @@ export default function RecentRow({ games, onLaunch, onHover }) {
         Continue playing
       </h2>
       <div className="flex gap-3 overflow-x-auto">
-        {games.map((game) => (
+        {games.map((game, index) => (
           <button
             key={game.id}
             type="button"
-            onClick={() => onLaunch(game.id)}
+            onClick={() => onSelect && onSelect(game.id)}
             onMouseEnter={() => onHover && onHover(game.id)}
             onMouseLeave={() => onHover && onHover(null)}
-            className="group relative flex-shrink-0 w-24 aspect-[3/4] rounded-lg overflow-hidden border border-white/10 hover:border-accent transition-colors"
+            onFocus={() => onFocusHover && onFocusHover(game.id)}
+            onBlur={() => onHover && onHover(null)}
+            className={[
+              'group relative flex-shrink-0 w-24 aspect-[3/4] rounded-lg overflow-hidden border transition-colors outline-none',
+              zoneActive && focusedIndex === index
+                ? 'border-accent ring-2 ring-ink ring-offset-2 ring-offset-void'
+                : 'border-white/10 hover:border-accent focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-void',
+            ].join(' ')}
             title={game.name}
           >
             {game.image ? (

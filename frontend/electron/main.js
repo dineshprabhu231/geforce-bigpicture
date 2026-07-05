@@ -283,6 +283,11 @@ ipcMain.handle('window:setFullscreen', (_e, enabled) => {
   return mainWindow.isFullScreen();
 });
 
+ipcMain.handle('window:closeApp', () => {
+  app.quit();
+  return true;
+});
+
 // ---- IPC: automatic artwork (SteamGridDB) --------------------------------
 
 ipcMain.handle('library:fetchArtwork', async (_e, id) => {

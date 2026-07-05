@@ -1,16 +1,22 @@
 import React from 'react';
 import { useModalNav } from '../hooks/useModalNav.js';
 
-export default function SettingsPanel({ autoLaunch, onToggleAutoLaunch, onClose }) {
-  // Two focusable controls, stacked vertically: the auto-launch checkbox and
-  // the Done button. Up/down moves between them, A toggles or activates
-  // whichever is highlighted, B/Escape closes the panel from anywhere.
+export default function SettingsPanel({ autoLaunch, onToggleAutoLaunch, onClose, onQuit, onControllerInput }) {
+  // Three focusable controls, stacked vertically: the auto-launch checkbox,
+  // the Quit button, and the Done button. Up/down moves between them, A
+  // toggles or activates whichever is highlighted, B/Escape closes the panel
+  // from anywhere.
   const [index] = useModalNav({
-    itemCount: 2,
+    itemCount: 3,
     orientation: 'vertical',
     initialIndex: 0,
-    onActivate: (i) => (i === 0 ? onToggleAutoLaunch(!autoLaunch) : onClose()),
+    onActivate: (i) => {
+      if (i === 0) onToggleAutoLaunch(!autoLaunch);
+      else if (i === 1) onQuit && onQuit();
+      else onClose();
+    },
     onCancel: onClose,
+    onControllerInput,
   });
 
   return (
@@ -46,12 +52,21 @@ export default function SettingsPanel({ autoLaunch, onToggleAutoLaunch, onClose 
           </label>
         </div>
 
-        <div className="flex justify-end pt-5">
+        <div className="flex justify-end items-center gap-3 pt-5">
+          <button
+            onClick={onQuit}
+            className={[
+              'text-sm font-body font-semibold px-4 py-2 rounded-lg border transition-colors',
+              index === 1 ? 'border-red-500 text-red-200 shadow-focus' : 'border-red-900/60 text-red-300 hover:border-red-500 hover:text-red-200',
+            ].join(' ')}
+          >
+            Quit app
+          </button>
           <button
             onClick={onClose}
             className={[
               'text-sm font-body font-semibold px-4 py-2 rounded-lg bg-accent text-black hover:bg-accent-soft transition-colors',
-              index === 1 ? 'shadow-focus' : '',
+              index === 2 ? 'shadow-focus' : '',
             ].join(' ')}
           >
             Done
