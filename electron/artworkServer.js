@@ -6,7 +6,7 @@
 // Deploy /server to Railway (see server/README.md), then set
 // ARTWORK_SERVER_URL below to the URL Railway gives you.
 const ARTWORK_SERVER_URL =
-  process.env.ARTWORK_SERVER_URL || 'gfn-artwork-server-production.up.railway.app';
+  process.env.ARTWORK_SERVER_URL || 'https://gfn-artwork-server-production.up.railway.app';
 
 // Only needed if you set CLIENT_SECRET on the server too — leave both
 // blank to run against an open server.
@@ -29,19 +29,25 @@ function cleanNameForSearch(name) {
 async function fetchArtworkForName(name) {
   const query = cleanNameForSearch(name);
   const url = `${ARTWORK_SERVER_URL.replace(/\/$/, '')}/artwork?name=${encodeURIComponent(query)}`;
+  console.log(`[artwork] requesting: ${url}`);
+
   let res;
   try {
     res = await fetch(url, {
       headers: CLIENT_SECRET ? { 'x-app-secret': CLIENT_SECRET } : {},
     });
-  } catch {
+  } catch (err) {
+    console.log(`[artwork] network error reaching server: ${err.message}`);
     throw new Error("Couldn't reach the artwork server. Check your internet connection.");
   }
+
+  console.log(`[artwork] server responded: ${res.status}`);
 
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Artwork server request failed (${res.status})`);
 
   const data = await res.json();
+  console.log(`[artwork] result:`, data.ok ? 'found image' : data.error);
   if (!data.ok) throw new Error(data.error || 'Artwork lookup failed.');
   return data.image;
 }
