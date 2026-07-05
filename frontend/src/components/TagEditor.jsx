@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useModalNav } from '../hooks/useModalNav.js';
 
 // Small popover for assigning collections/tags (e.g. "co-op", "roguelike")
 // to a single game. Existing tags across the library show up as one-tap
@@ -6,6 +7,11 @@ import React, { useState } from 'react';
 export default function TagEditor({ game, allTags, onSave, onClose }) {
   const [tags, setTags] = useState(game.tags || []);
   const [draft, setDraft] = useState('');
+
+  // Tag chips aren't roving-focus navigable yet (this popover leans on
+  // mouse/touch for now), but B/Escape closing it from a controller is
+  // table stakes so it never becomes a dead end on a couch.
+  useModalNav({ itemCount: 1, onActivate: () => {}, onCancel: onClose });
 
   const toggle = (tag) => {
     setTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]));

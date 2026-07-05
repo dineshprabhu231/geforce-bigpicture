@@ -1,9 +1,13 @@
 import React from 'react';
 
 // Minimal row of chips for filtering the grid down to one collection/tag at
-// a time. Only rendered once at least one game has a tag.
-export default function TagFilterBar({ tags, activeTag, onSelect }) {
+// a time. Only rendered once at least one game has a tag. When the
+// controller focus is in the "filters" zone, `focusedIndex` (0 = All, 1+ =
+// tags in order) gets a visible ring so it's clear a chip is selectable.
+export default function TagFilterBar({ tags, activeTag, onSelect, zoneActive, focusedIndex }) {
   if (tags.length === 0) return null;
+
+  const ringClass = 'ring-2 ring-ink ring-offset-2 ring-offset-void';
 
   return (
     <div className="flex items-center gap-2 px-10 pb-3 flex-shrink-0 overflow-x-auto">
@@ -15,11 +19,12 @@ export default function TagFilterBar({ tags, activeTag, onSelect }) {
           activeTag === null
             ? 'bg-accent text-black border-accent font-medium'
             : 'bg-panel-raised text-muted border-white/10 hover:border-accent hover:text-ink',
+          zoneActive && focusedIndex === 0 ? ringClass : '',
         ].join(' ')}
       >
         All
       </button>
-      {tags.map((tag) => (
+      {tags.map((tag, i) => (
         <button
           key={tag}
           type="button"
@@ -29,6 +34,7 @@ export default function TagFilterBar({ tags, activeTag, onSelect }) {
             activeTag === tag
               ? 'bg-accent text-black border-accent font-medium'
               : 'bg-panel-raised text-muted border-white/10 hover:border-accent hover:text-ink',
+            zoneActive && focusedIndex === i + 1 ? ringClass : '',
           ].join(' ')}
         >
           {tag}

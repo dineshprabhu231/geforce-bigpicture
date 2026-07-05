@@ -7,10 +7,19 @@ import TagEditor from './components/TagEditor.jsx';
 import ControlHints from './components/ControlHints.jsx';
 import EmptyState from './components/EmptyState.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
+import LaunchOverlay from './components/LaunchOverlay.jsx';
+import ConfirmModal from './components/ConfirmModal.jsx';
 import { useGamepadNavigation } from './hooks/useGamepadNavigation.js';
-import { playLaunchSound, playFavoriteSound } from './utils/sfx.js';
+import { detectPadType } from './utils/gamepad.js';
+import {
+  playLaunchSound,
+  playFavoriteSound,
+  playControllerConnectSound,
+  playControllerDisconnectSound,
+} from './utils/sfx.js';
 
 const RECENT_COUNT = 8;
+const TOAST_DURATION_MS = 2500;
 
 // Favorites pinned to the front, in the order they were favorited (oldest
 // favorite first). Everything else keeps its existing relative order.
@@ -26,6 +35,7 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [launchError, setLaunchError] = useState(null);
+  const [launchingGame, setLaunchingGame] = useState(null); // { name } while GFN is starting up
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [fetchingArtId, setFetchingArtId] = useState(null);
@@ -34,8 +44,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
   const [tagEditorIndex, setTagEditorIndex] = useState(null);
+  const [confirmRemove, setConfirmRemove] = useState(null); // { id, name } while the remove dialog is open
   const [hoveredId, setHoveredId] = useState(null);
+  const [gamepadToast, setGamepadToast] = useState(null); // { kind: 'connected'|'disconnected', label }
   const rowRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
   // Tracks which game is focused so that re-sorting the row (e.g. after a
   // favorite toggle moves a tile to the front) doesn't leave the highlight
   // sitting on the wrong game.
@@ -52,9 +66,9 @@ export default function App() {
     const keepId = preferredId !== undefined ? preferredId : focusedGameIdRef.current;
     const idx = keepId ? sorted.findIndex((g) => g.id === keepId) : -1;
     if (idx !== -1) {
-      setFocusedIndex(idx);
+      setGridIndex(idx);
     } else {
-      setFocusedIndex((i) => Math.min(i, Math.max(sorted.length - 1, 0)));
+      setGridIndex((i) => Math.min(i, Math.max(sorted.length - 1, 0)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -81,6 +95,8 @@ export default function App() {
     bridge.getAutoLaunch().then(setAutoLaunch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
 
   // Search + collection filtering happen on top of the sorted (favorites
   // pinned) list. Search matches by name only; the tag filter is exclusive
@@ -118,10 +134,14 @@ export default function App() {
       const game = visibleGames[index];
       if (!game) return;
       setLaunchError(null);
+      setLaunchingGame({ name: game.name });
       playLaunchSound();
       const result = await bridge.launch(game.id);
       if (result.games) applyGames(result.games, game.id);
-      if (!result.ok) setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+      if (!result.ok) {
+        setLaunchingGame(null);
+        setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+      }
     },
     [visibleGames, bridge, applyGames]
   );
@@ -131,10 +151,14 @@ export default function App() {
       const game = games.find((g) => g.id === id);
       if (!game) return;
       setLaunchError(null);
+      setLaunchingGame({ name: game.name });
       playLaunchSound();
       const result = await bridge.launch(id);
       if (result.games) applyGames(result.games, id);
-      if (!result.ok) setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+      if (!result.ok) {
+        setLaunchingGame(null);
+        setLaunchError(`Couldn't launch ${game.name}: ${result.error}`);
+      }
     },
     [games, bridge, applyGames]
   );
@@ -198,19 +222,29 @@ export default function App() {
     [bridge]
   );
 
-  const removeGame = useCallback(
-    async (index) => {
+  // Remove now goes through a controller-friendly confirm modal instead of
+  // window.confirm (which a gamepad can't interact with at all). Requesting
+  // remembers the game's id/name rather than its index, so the confirmation
+  // still targets the right game even if the visible list re-sorts or
+  // re-filters in the moment between asking and confirming.
+  const requestRemove = useCallback(
+    (index) => {
       const game = visibleGames[index];
       if (!game) return;
-      const confirmed = window.confirm(
-        `Remove "${game.name}" from this list? (Only removes it here — the shortcut file itself is untouched.)`
-      );
-      if (!confirmed) return;
-      const updated = await bridge.remove(game.id);
-      applyGames(updated);
+      setConfirmRemove({ id: game.id, name: game.name });
     },
-    [visibleGames, bridge, applyGames]
+    [visibleGames]
   );
+
+  const confirmRemoveGame = useCallback(async () => {
+    if (!confirmRemove) return;
+    const { id } = confirmRemove;
+    setConfirmRemove(null);
+    const updated = await bridge.remove(id);
+    applyGames(updated);
+  }, [confirmRemove, bridge, applyGames]);
+
+  const cancelRemove = useCallback(() => setConfirmRemove(null), []);
 
   const saveTags = useCallback(
     async (tags) => {
@@ -238,31 +272,103 @@ export default function App() {
     }
   }, [bridge, applyGames]);
 
-  const { focusedIndex, setFocusedIndex, focusHover, inputMethod } = useGamepadNavigation(
-    visibleGames.length,
-    launchGame,
-    toggleFavorite,
-    setImage
+  const missingArtCount = games.filter((g) => !g.image).length;
+  const showSearch = games.length > 8;
+
+  // Header controls are built up in the same order they're rendered below,
+  // so their index in this list is exactly their index in the "header"
+  // navigation zone — no separate bookkeeping needed.
+  let hIdx = 0;
+  const searchHIdx = showSearch ? hIdx++ : -1;
+  const rescanHIdx = hIdx++;
+  const importHIdx = hIdx++;
+  const addShortcutHIdx = hIdx++;
+  const fetchArtHIdx = missingArtCount > 0 ? hIdx++ : -1;
+  const settingsHIdx = hIdx++;
+  const headerCount = hIdx;
+
+  const onHeaderActivate = useCallback(
+    (i) => {
+      if (i === searchHIdx) { searchInputRef.current?.focus(); return; }
+      if (i === rescanHIdx) { rescan(); return; }
+      if (i === importHIdx) { addFolder(); return; }
+      if (i === addShortcutHIdx) { addManual(); return; }
+      if (i === fetchArtHIdx) { fetchAllArtwork(); return; }
+      if (i === settingsHIdx) { setShowSettings(true); return; }
+    },
+    [searchHIdx, rescanHIdx, importHIdx, addShortcutHIdx, fetchArtHIdx, settingsHIdx, rescan, addFolder, addManual, fetchAllArtwork]
   );
 
+  const onFilterActivate = useCallback(
+    (i) => setActiveTag(i === 0 ? null : allTags[i - 1]),
+    [allTags]
+  );
+
+  const handleGamepadConnect = useCallback((pad) => {
+    playControllerConnectSound();
+    const label = detectPadType(pad?.id) === 'playstation' ? 'PlayStation controller connected' : 'Controller connected';
+    setGamepadToast({ kind: 'connected', label });
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setGamepadToast(null), TOAST_DURATION_MS);
+  }, []);
+
+  const handleGamepadDisconnect = useCallback(() => {
+    playControllerDisconnectSound();
+    setGamepadToast({ kind: 'disconnected', label: 'Controller disconnected' });
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setGamepadToast(null), TOAST_DURATION_MS);
+  }, []);
+
+  // Any open modal owns input by itself (via useModalNav), so the main
+  // header/filters/grid navigation pauses entirely while one is up.
+  const anyModalOpen = showSettings || tagEditorIndex !== null || confirmRemove !== null;
+
+  const {
+    zone,
+    gridIndex,
+    setGridIndex,
+    headerIndex,
+    filterIndex,
+    focusHover,
+    inputMethod,
+    gamepadConnected,
+  } = useGamepadNavigation({
+    gridCount: visibleGames.length,
+    headerCount,
+    filterCount: allTags.length > 0 ? allTags.length + 1 : 0,
+    disabled: anyModalOpen,
+    onGridActivate: launchGame,
+    onGridSecondary: toggleFavorite,
+    onGridTertiary: setImage,
+    onGridRemove: requestRemove,
+    onHeaderActivate,
+    onFilterActivate,
+    onGamepadConnect: handleGamepadConnect,
+    onGamepadDisconnect: handleGamepadDisconnect,
+  });
+
   // Keep the ref in sync so applyGames always knows which game was focused,
-  // without needing focusedIndex/games in its own dependency list.
+  // without needing gridIndex/games in its own dependency list.
   useEffect(() => {
-    focusedGameIdRef.current = visibleGames[focusedIndex]?.id ?? null;
+    focusedGameIdRef.current = visibleGames[gridIndex]?.id ?? null;
   });
 
   // Keep the focused tile scrolled into view, horizontally centered
   useEffect(() => {
     const row = rowRef.current;
     if (!row) return;
-    const tile = row.children[focusedIndex];
+    const tile = row.children[gridIndex];
     if (tile) tile.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-  }, [focusedIndex]);
+  }, [gridIndex]);
 
-  const focusedGame = visibleGames[focusedIndex];
+  const focusedGame = visibleGames[gridIndex];
   const bannerGame = (hoveredId && games.find((g) => g.id === hoveredId)) || focusedGame;
-  const missingArtCount = games.filter((g) => !g.image).length;
-  const showSearch = games.length > 8;
+
+  const headerBtnClass = (focused) =>
+    [
+      'text-sm font-body px-4 py-2 rounded-lg bg-panel-raised border transition-colors disabled:opacity-50 flex-shrink-0',
+      focused ? 'border-accent ring-2 ring-ink ring-offset-2 ring-offset-void' : 'border-white/10 hover:border-accent',
+    ].join(' ');
 
   return (
     <div className="h-screen bg-void text-ink font-body overflow-hidden relative">
@@ -290,6 +396,13 @@ export default function App() {
         <div className="absolute inset-0 bg-gradient-to-r from-void/80 via-void/10 to-void/80" />
       </div>
 
+      {gamepadToast && (
+        <div className="fixed top-6 right-6 z-50 toast-in px-4 py-2.5 rounded-lg bg-panel-raised border border-white/10 shadow-xl text-sm font-body flex items-center gap-2">
+          <span aria-hidden>{gamepadToast.kind === 'connected' ? '🎮' : '⚠️'}</span>
+          <span className={gamepadToast.kind === 'connected' ? 'text-ink' : 'text-muted'}>{gamepadToast.label}</span>
+        </div>
+      )}
+
       <div className="relative z-10 h-full flex flex-col">
       <header className="flex items-center justify-between px-10 py-6 flex-shrink-0 gap-4">
         <h1 className="font-display text-2xl font-bold tracking-wide flex-shrink-0">
@@ -298,30 +411,34 @@ export default function App() {
         <div className="flex items-center gap-3 min-w-0">
           {showSearch && (
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search games…"
-              className="w-48 text-sm font-body px-3 py-2 rounded-lg bg-panel-raised border border-white/10 text-ink placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
+              className={[
+                'w-48 text-sm font-body px-3 py-2 rounded-lg bg-panel-raised border text-ink placeholder:text-muted focus:outline-none focus:border-accent transition-colors',
+                zone === 'header' && headerIndex === searchHIdx ? 'border-accent ring-2 ring-ink ring-offset-2 ring-offset-void' : 'border-white/10',
+              ].join(' ')}
             />
           )}
           <button
             onClick={rescan}
             disabled={scanning}
-            className="text-sm font-body px-4 py-2 rounded-lg bg-panel-raised border border-white/10 hover:border-accent transition-colors disabled:opacity-50 flex-shrink-0"
+            className={headerBtnClass(zone === 'header' && headerIndex === rescanHIdx)}
           >
             {scanning ? 'Scanning…' : 'Rescan'}
           </button>
           <button
             onClick={addFolder}
             disabled={scanning}
-            className="text-sm font-body px-4 py-2 rounded-lg bg-panel-raised border border-white/10 hover:border-accent transition-colors disabled:opacity-50 flex-shrink-0"
+            className={headerBtnClass(zone === 'header' && headerIndex === importHIdx)}
           >
             + Import folder
           </button>
           <button
             onClick={addManual}
-            className="text-sm font-body px-4 py-2 rounded-lg bg-panel-raised border border-white/10 hover:border-accent transition-colors flex-shrink-0"
+            className={headerBtnClass(zone === 'header' && headerIndex === addShortcutHIdx)}
           >
             + Add shortcut
           </button>
@@ -329,7 +446,7 @@ export default function App() {
             <button
               onClick={fetchAllArtwork}
               disabled={fetchingAll}
-              className="text-sm font-body px-4 py-2 rounded-lg bg-panel-raised border border-white/10 hover:border-accent transition-colors disabled:opacity-50 flex-shrink-0"
+              className={headerBtnClass(zone === 'header' && headerIndex === fetchArtHIdx)}
             >
               {fetchingAll ? 'Fetching artwork…' : `Fetch artwork (${missingArtCount})`}
             </button>
@@ -337,7 +454,10 @@ export default function App() {
           <button
             onClick={() => setShowSettings(true)}
             title="Settings"
-            className="text-sm font-body w-9 h-9 flex items-center justify-center rounded-lg bg-panel-raised border border-white/10 hover:border-accent transition-colors flex-shrink-0"
+            className={[
+              'text-sm font-body w-9 h-9 flex items-center justify-center rounded-lg bg-panel-raised border transition-colors flex-shrink-0',
+              zone === 'header' && headerIndex === settingsHIdx ? 'border-accent ring-2 ring-ink ring-offset-2 ring-offset-void' : 'border-white/10 hover:border-accent',
+            ].join(' ')}
           >
             ⚙
           </button>
@@ -364,7 +484,13 @@ export default function App() {
         </div>
       )}
 
-      <TagFilterBar tags={allTags} activeTag={activeTag} onSelect={setActiveTag} />
+      <TagFilterBar
+        tags={allTags}
+        activeTag={activeTag}
+        onSelect={setActiveTag}
+        zoneActive={zone === 'filters'}
+        focusedIndex={filterIndex}
+      />
 
       {games.length === 0 ? (
         <EmptyState onAddFolder={addFolder} onAddManual={addManual} scanning={scanning} />
@@ -378,16 +504,16 @@ export default function App() {
           ) : (
             <GameGrid
               games={visibleGames}
-              focusedIndex={focusedIndex}
+              focusedIndex={gridIndex}
               fetchingArtId={fetchingArtId}
               onSelect={(i) => {
-                setFocusedIndex(i);
+                setGridIndex(i);
                 launchGame(i);
               }}
               onSetImage={setImage}
               onFetchArtwork={fetchArtwork}
               onEditTags={setTagEditorIndex}
-              onRemove={removeGame}
+              onRemove={requestRemove}
               onHover={setHoveredId}
               onFocusHover={focusHover}
               rowRef={rowRef}
@@ -396,7 +522,12 @@ export default function App() {
         </>
       )}
 
-      <ControlHints inputMethod={inputMethod} gameName={focusedGame?.name} />
+      <ControlHints
+        inputMethod={inputMethod}
+        gameName={focusedGame?.name}
+        zone={zone}
+        gamepadConnected={gamepadConnected}
+      />
 
       {showSettings && (
         <SettingsPanel
@@ -406,12 +537,31 @@ export default function App() {
         />
       )}
 
+      {launchingGame && (
+        <LaunchOverlay
+          gameName={launchingGame.name}
+          onDismiss={() => setLaunchingGame(null)}
+        />
+      )}
+
       {tagEditorIndex !== null && visibleGames[tagEditorIndex] && (
         <TagEditor
           game={visibleGames[tagEditorIndex]}
           allTags={allTags}
           onSave={saveTags}
           onClose={() => setTagEditorIndex(null)}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Remove game?"
+          message={`Remove "${confirmRemove.name}" from this list? The shortcut file itself is untouched — you can re-import it later.`}
+          confirmLabel="Remove"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={confirmRemoveGame}
+          onCancel={cancelRemove}
         />
       )}
       </div>

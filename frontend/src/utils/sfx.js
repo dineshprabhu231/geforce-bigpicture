@@ -81,3 +81,22 @@ export function playFavoriteSound(isFavorited) {
     tone({ freq: 700, freqEnd: 480, duration: 0.09, type: 'sine', gain: 0.1 });
   }
 }
+
+// Controller plugged in: two quick ascending notes, cheerful but brief so it
+// doesn't compete with whatever else is on screen.
+export function playControllerConnectSound() {
+  tone({ freq: 520, duration: 0.06, type: 'sine', gain: 0.12 });
+  tone({ freq: 780, duration: 0.09, type: 'sine', gain: 0.12, delay: 0.06 });
+}
+
+// Controller unplugged: a single, low, slightly wistful descending note —
+// deliberately the opposite shape of the connect chime.
+export function playControllerDisconnectSound() {
+  tone({ freq: 420, freqEnd: 260, duration: 0.14, type: 'sine', gain: 0.1 });
+}
+
+// Confirming a destructive action (e.g. remove): a short low thud, distinct
+// from the bright launch/favorite cues so it reads as final, not celebratory.
+export function playConfirmDestructiveSound() {
+  tone({ freq: 220, freqEnd: 140, duration: 0.12, type: 'triangle', gain: 0.14 });
+}
