@@ -273,6 +273,25 @@ ipcMain.handle('settings:setAutoLaunch', (_e, enabled) => {
   return store.get('autoLaunch', false);
 });
 
+// Appearance + controller-mapping + vibration preferences. Stored as a
+// single object so the renderer can read/write it in one round trip; merged
+// shallowly (one level deep) with whatever's already saved so a settings
+// panel that only knows about, say, `font` doesn't clobber `vibration`.
+const DEFAULT_PREFS = {
+  font: 'default',
+  controllerMap: { activate: 0, secondary: 2, tertiary: 3, back: 1 },
+  vibration: { enabled: true, weakMagnitude: 1, strongMagnitude: 1 },
+};
+
+ipcMain.handle('settings:getPrefs', () => ({ ...DEFAULT_PREFS, ...store.get('prefs', DEFAULT_PREFS) }));
+
+ipcMain.handle('settings:setPrefs', (_e, prefs) => {
+  const current = { ...DEFAULT_PREFS, ...store.get('prefs', DEFAULT_PREFS) };
+  const next = { ...current, ...prefs };
+  store.set('prefs', next);
+  return next;
+});
+
 // ---- IPC: window -----------------------------------------------------
 
 // Lets the renderer request real OS-level fullscreen — used to jump into

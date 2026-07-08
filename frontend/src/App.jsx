@@ -10,7 +10,8 @@ import SettingsPanel from './components/SettingsPanel.jsx';
 import LaunchOverlay from './components/LaunchOverlay.jsx';
 import ConfirmModal from './components/ConfirmModal.jsx';
 import { useGamepadNavigation } from './hooks/useGamepadNavigation.js';
-import { detectPadType } from './utils/gamepad.js';
+import { detectPadType, setRumbleConfig, DEFAULT_CONTROLLER_MAP } from './utils/gamepad.js';
+import { applyFont } from './utils/fonts.js';
 import {
   playLaunchSound,
   playFavoriteSound,
@@ -38,6 +39,13 @@ export default function App() {
   const [launchingGame, setLaunchingGame] = useState(null); // { name } while GFN is starting up
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Appearance/controller/vibration preferences — loaded from disk on
+  // mount, applied immediately, and re-saved whenever Settings changes them.
+  const [prefs, setPrefsState] = useState({
+    font: 'default',
+    controllerMap: DEFAULT_CONTROLLER_MAP,
+    vibration: { enabled: true, weakMagnitude: 1, strongMagnitude: 1 },
+  });
   const [fetchingArtId, setFetchingArtId] = useState(null);
   const [fetchingAll, setFetchingAll] = useState(false);
   const [artworkNotice, setArtworkNotice] = useState(null);
@@ -94,8 +102,40 @@ export default function App() {
     // library. "Rescan" only re-checks a folder once one's been imported.
     loadLibrary();
     bridge.getAutoLaunch().then(setAutoLaunch);
+    bridge.getPrefs?.().then((saved) => {
+      if (!saved) return;
+      setPrefsState(saved);
+      applyFont(saved.font);
+      setRumbleConfig({
+        enabled: saved.vibration?.enabled ?? true,
+        weak: saved.vibration?.weakMagnitude ?? 1,
+        strong: saved.vibration?.strongMagnitude ?? 1,
+      });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persists a partial preferences update (merged with what's already
+  // saved) and immediately applies its visible/tactile effects — called
+  // from the Settings panel any time a font, mapping, or vibration control
+  // changes, so there's no separate "Save" step.
+  const updatePrefs = useCallback(
+    async (partial) => {
+      const next = { ...prefs, ...partial };
+      setPrefsState(next);
+      if (partial.font) applyFont(partial.font);
+      if (partial.vibration) {
+        setRumbleConfig({
+          enabled: next.vibration.enabled,
+          weak: next.vibration.weakMagnitude,
+          strong: next.vibration.strongMagnitude,
+        });
+      }
+      const saved = await bridge.setPrefs?.(next);
+      if (saved) setPrefsState(saved);
+    },
+    [prefs, bridge]
+  );
 
   useEffect(() => () => clearTimeout(toastTimerRef.current), []);
 
@@ -357,11 +397,12 @@ export default function App() {
     onGridSecondary: toggleFavorite,
     onGridTertiary: setImage,
     onGridRemove: requestRemove,
-    onRecentActivate: (id) => {
-      const index = visibleGames.findIndex((game) => game.id === id);
-      if (index !== -1) {
-        setGridIndex(index);
-        setHoveredId(id);
+    onRecentActivate: (index) => {
+      const recentGame = recentGames[index];
+      if (!recentGame) return;
+      const gridIdx = visibleGames.findIndex((game) => game.id === recentGame.id);
+      if (gridIdx !== -1) {
+        setGridIndex(gridIdx);
         setZone('grid');
       }
     },
@@ -370,6 +411,7 @@ export default function App() {
     onControllerInput: handleControllerInput,
     onGamepadConnect: handleGamepadConnect,
     onGamepadDisconnect: handleGamepadDisconnect,
+    buttonMap: prefs.controllerMap,
   });
 
   // Keep the ref in sync so applyGames always knows which game was focused,
@@ -377,6 +419,16 @@ export default function App() {
   useEffect(() => {
     focusedGameIdRef.current = visibleGames[gridIndex]?.id ?? null;
   });
+
+  // `hoveredId` exists purely to preview a game's art while the mouse sits
+  // over a *different* tile than the current focus (e.g. hovering the
+  // Continue Playing row without committing to it). The moment the actual
+  // grid focus moves — via keyboard, gamepad, a click, or selecting from
+  // Continue Playing — that preview is stale and should stop overriding the
+  // banner, which is why this drops it back to null on every focus change.
+  useEffect(() => {
+    setHoveredId(null);
+  }, [gridIndex]);
 
   // Keep the focused tile scrolled into view, horizontally centered
   useEffect(() => {
@@ -441,7 +493,25 @@ export default function App() {
 
       {gamepadToast && (
         <div className="fixed top-6 right-6 z-50 toast-in px-4 py-2.5 rounded-lg bg-panel-raised border border-white/10 shadow-xl text-sm font-body flex items-center gap-2">
-          <span aria-hidden>{gamepadToast.kind === 'connected' ? '🎮' : '⚠️'}</span>
+          <svg viewBox="0 0 24 24" fill="none" className={['w-4 h-4 flex-shrink-0', gamepadToast.kind === 'connected' ? 'text-accent' : 'text-muted'].join(' ')} aria-hidden>
+            {gamepadToast.kind === 'connected' ? (
+              <path
+                d="M7 8h3M8.5 6.5v3M14.5 9.5h.01M17 7.5h.01M5.5 8c-1.4 0-2.6 1-2.9 2.4l-1 4.6c-.3 1.4.8 2.7 2.2 2.7.6 0 1.2-.3 1.6-.7l1.6-1.8c.4-.5 1-.7 1.6-.7h6.8c.6 0 1.2.2 1.6.7l1.6 1.8c.4.5 1 .7 1.6.7 1.4 0 2.5-1.3 2.2-2.7l-1-4.6C20.1 9 18.9 8 17.5 8"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : (
+              <path
+                d="M12 9v4m0 3h.01M10.3 4.4 2.7 17.5c-.6 1 .1 2.3 1.3 2.3h16c1.2 0 1.9-1.3 1.3-2.3L13.7 4.4c-.6-1-2-1-2.6 0Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+          </svg>
           <span className={gamepadToast.kind === 'connected' ? 'text-ink' : 'text-muted'}>{gamepadToast.label}</span>
         </div>
       )}
@@ -547,7 +617,6 @@ export default function App() {
               const index = visibleGames.findIndex((game) => game.id === id);
               if (index !== -1) {
                 setGridIndex(index);
-                setHoveredId(id);
                 setZone('grid');
               }
             }}
@@ -585,9 +654,9 @@ export default function App() {
 
       <ControlHints
         inputMethod={inputMethod}
-        gameName={focusedGame?.name}
         zone={zone}
         gamepadConnected={gamepadConnected}
+        buttonMap={prefs.controllerMap}
       />
 
       {showSettings && (
@@ -597,6 +666,9 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onQuit={quitApp}
           onControllerInput={handleControllerInput}
+          prefs={prefs}
+          onUpdatePrefs={updatePrefs}
+          inputMethod={inputMethod}
         />
       )}
 

@@ -14,9 +14,12 @@ export default {
         muted: '#8A9099',
       },
       fontFamily: {
-        display: ['"Rajdhani"', 'sans-serif'],
-        body: ['"Inter"', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'monospace'],
+        // Driven by CSS custom properties (see index.css for defaults) so
+        // the Settings → Appearance font preset can swap these at runtime
+        // without touching a single className in the app.
+        display: ['var(--font-display)', '"Rajdhani"', 'sans-serif'],
+        body: ['var(--font-body)', '"Inter"', 'sans-serif'],
+        mono: ['var(--font-mono)', '"JetBrains Mono"', 'monospace'],
       },
       boxShadow: {
         focus: '0 0 0 3px #76B900, 0 0 30px 4px rgba(118,185,0,0.45)',

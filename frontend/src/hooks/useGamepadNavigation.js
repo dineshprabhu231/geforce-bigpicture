@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { playMoveSound } from '../utils/sfx.js';
-import { rumble, detectPadType, rumbleConnectPulse } from '../utils/gamepad.js';
+import { rumble, detectPadType, rumbleConnectPulse, DEFAULT_CONTROLLER_MAP } from '../utils/gamepad.js';
 
 const STICK_DEADZONE = 0.5;
 const REPEAT_DELAY_MS = 260; // time before a held direction starts repeating
@@ -31,6 +31,10 @@ const REPEAT_RATE_MS = 130;
  * @param {(pad:Gamepad)=>void} opts.onControllerInput called when controller input should hide the cursor
  * @param {(pad:Gamepad)=>void} opts.onGamepadConnect fires once per physical connect
  * @param {(pad:Gamepad|null)=>void} opts.onGamepadDisconnect fires when the last pad disconnects
+ * @param {{activate:number,secondary:number,tertiary:number,back:number}} opts.buttonMap
+ *   which physical standard-gamepad button index performs each action —
+ *   editable from Settings → Controller, defaults to A/X/Y/B (or the
+ *   PlayStation equivalents).
  */
 export function useGamepadNavigation({
   gridCount,
@@ -48,6 +52,7 @@ export function useGamepadNavigation({
   onControllerInput,
   onGamepadConnect,
   onGamepadDisconnect,
+  buttonMap = DEFAULT_CONTROLLER_MAP,
 }) {
   const [zone, setZone] = useState('grid'); // 'header' | 'filters' | 'grid'
   const [gridIndex, setGridIndex] = useState(0);
@@ -109,14 +114,14 @@ export function useGamepadNavigation({
     }
 
     stateRef.current.prevButtons = {
-      0: pad.buttons[0]?.pressed,
-      1: pad.buttons[1]?.pressed,
-      2: pad.buttons[2]?.pressed,
-      3: pad.buttons[3]?.pressed,
+      [buttonMap.activate]: pad.buttons[buttonMap.activate]?.pressed,
+      [buttonMap.back]: pad.buttons[buttonMap.back]?.pressed,
+      [buttonMap.secondary]: pad.buttons[buttonMap.secondary]?.pressed,
+      [buttonMap.tertiary]: pad.buttons[buttonMap.tertiary]?.pressed,
     };
     stateRef.current.lastDir = null;
     stateRef.current.lastVertDir = null;
-  }, [disabled]);
+  }, [disabled, buttonMap]);
 
   // Clamp each zone's index if its item count shrinks (search narrows the
   // shelf, a tag gets removed, etc.), and fall back to the grid if the zone
@@ -309,40 +314,47 @@ export function useGamepadNavigation({
           s.lastVertDir = null;
         }
 
-        // 0 = A/Cross, 1 = B/Circle, 2 = X/Square, 3 = Y/Triangle
-        const aPressed = pad.buttons[0]?.pressed;
-        const bPressed = pad.buttons[1]?.pressed;
-        const xPressed = pad.buttons[2]?.pressed;
-        const yPressed = pad.buttons[3]?.pressed;
+        // Which physical button performs which action is configurable from
+        // Settings → Controller (buttonMap), so these are looked up by
+        // index rather than assumed to be A/B/X/Y.
+        const activatePressed = pad.buttons[buttonMap.activate]?.pressed;
+        const backPressed = pad.buttons[buttonMap.back]?.pressed;
+        const secondaryPressed = pad.buttons[buttonMap.secondary]?.pressed;
+        const tertiaryPressed = pad.buttons[buttonMap.tertiary]?.pressed;
 
-        if (aPressed && !s.prevButtons[0]) {
+        if (activatePressed && !s.prevButtons[buttonMap.activate]) {
           markControllerInput(pad);
           rumble(pad, { duration: 140, weakMagnitude: 0.3, strongMagnitude: 0.7 });
           activate();
         }
-        if (bPressed && !s.prevButtons[1]) {
+        if (backPressed && !s.prevButtons[buttonMap.back]) {
           markControllerInput(pad);
           if (zoneRef.current === 'grid') {
             rumble(pad, { duration: 90, weakMagnitude: 0.2, strongMagnitude: 0.3 });
             onGridRemove && onGridRemove(gridIndexRef.current);
           } else {
-            // B backs out of header/filters to the shelf, same as a TV UI's "back".
+            // Back exits header/filters to the shelf, same as a TV UI's "back".
             rumble(pad, { duration: 40, weakMagnitude: 0.15, strongMagnitude: 0.1 });
             setZone('grid');
           }
         }
-        if (xPressed && !s.prevButtons[2]) {
+        if (secondaryPressed && !s.prevButtons[buttonMap.secondary]) {
           markControllerInput(pad);
           if (zoneRef.current === 'grid') {
             rumble(pad, { duration: 70, weakMagnitude: 0.15, strongMagnitude: 0.25 });
             onGridSecondary && onGridSecondary(gridIndexRef.current);
           }
         }
-        if (yPressed && !s.prevButtons[3]) {
+        if (tertiaryPressed && !s.prevButtons[buttonMap.tertiary]) {
           markControllerInput(pad);
           if (zoneRef.current === 'grid') onGridTertiary && onGridTertiary(gridIndexRef.current);
         }
-        s.prevButtons = { 0: aPressed, 1: bPressed, 2: xPressed, 3: yPressed };
+        s.prevButtons = {
+          [buttonMap.activate]: activatePressed,
+          [buttonMap.back]: backPressed,
+          [buttonMap.secondary]: secondaryPressed,
+          [buttonMap.tertiary]: tertiaryPressed,
+        };
       }
 
       rafId = requestAnimationFrame(poll);
@@ -350,7 +362,7 @@ export function useGamepadNavigation({
 
     rafId = requestAnimationFrame(poll);
     return () => cancelAnimationFrame(rafId);
-  }, [disabled, moveHorizontal, moveVertical, activate, onGridSecondary, onGridTertiary, onGridRemove]);
+  }, [disabled, moveHorizontal, moveVertical, activate, onGridSecondary, onGridTertiary, onGridRemove, buttonMap]);
 
   return {
     zone,
